@@ -19,29 +19,7 @@ This project introduces concepts like **containerization**, **service orchestrat
 ## Tech Stack
 - **Containerization:** Docker, docker-compose  
 - **Services:** NGINX, WordPress, MariaDB  
-- **Operating System:** Debian (VM)  
-
-## Usage
-Clone the repository and build the containers:  
-
-```bash
-git clone https://github.com/G-robledo/inception.git
-cd inception
-make
-```
-
-Start the services:
-
-```bash
-docker-compose up -d
-```
-
-Access WordPress via your browser at:
-
-```bash
-https://localhost
-```
-I included the two .env files I used to do this project to allow testing it. They where not parts of my project's Git repository.
+- **Operating System:** Debian (VM)
 
 ## Learn Outcomes
 - Learned to write and configure Dockerfiles for custom services
