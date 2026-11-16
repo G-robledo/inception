@@ -1,22 +1,27 @@
-FROM debian:bookworm
+FROM debian:bullseye
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        php-fpm php-mysql php-xml php-mbstring php-curl php-zip php-gd php-cli \
-        mariadb-client curl ca-certificates \
-    && rm -rf /var/lib/apt/lists/* \
-    && php_version="$(php -r 'echo PHP_MAJOR_VERSION . "." . PHP_MINOR_VERSION;')" \
-    && sed -i 's|^listen = .*|listen = 0.0.0.0:9000|' "/etc/php/$php_version/fpm/pool.d/www.conf" \
-    && ln -s "/usr/sbin/php-fpm$php_version" /usr/local/bin/php-fpm
+RUN sed -i 's|deb.debian.org/debian-security|archive.debian.org/debian-security|g' /etc/apt/sources.list
 
-RUN curl --fail --silent --show-error --location \
-        https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar \
-        --output /usr/local/bin/wp \
-    && chmod +x /usr/local/bin/wp
+# Installation des paquets nécessaires
+RUN apt update && apt install -y \
+    php7.4 php7.4-fpm php7.4-mysql php7.4-xml php7.4-mbstring php7.4-curl php7.4-zip \
+    php7.4-opcache php7.4-gd php-cli mariadb-client netcat lsof curl net-tools iputils-ping procps \
+    && apt clean && rm -rf /var/lib/apt/lists/*
 
+# Installation de WP-CLI
+RUN curl -O https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar \
+  && chmod +x wp-cli.phar \
+  && mv wp-cli.phar /usr/local/bin/wp
+
+# Définir le dossier de travail
 WORKDIR /var/www/html
+
+# Copier le script de démarrage
 COPY tools/wordpress_start.sh /wordpress_start.sh
 RUN chmod +x /wordpress_start.sh
 
+# Exposer le port 9000 (utilisé par PHP-FPM)
 EXPOSE 9000
+
+# Lancer le script au démarrage du conteneur
 ENTRYPOINT ["/wordpress_start.sh"]

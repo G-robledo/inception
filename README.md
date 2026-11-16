@@ -1,98 +1,60 @@
 # Inception
 
-An École 42 project running WordPress, MariaDB and NGINX in separate containers, built from custom Debian Bookworm Dockerfiles.
+An École 42 project running NGINX, WordPress with PHP-FPM, and MariaDB in three containers, built from the original Debian Bullseye Dockerfiles. WordPress uses PHP 7.4.
 
-## Quick start
+## Configuration
 
-On a Linux VM with Docker, Docker Compose v2.20 or newer, and Make installed:
+On a Linux VM with Docker, the Docker Compose plugin and Make installed:
 
 ```sh
 git clone https://github.com/G-robledo/inception.git
 cd inception
+cp srcs/.env.example srcs/.env
+cp secrets/.env.example secrets/.env
+```
+
+Edit the passwords in `secrets/.env`. In `srcs/.env`, set `DOMAIN_NAME` to the hostname or IPv4 address you will use to open the site. The WordPress administrator is configured through `WP_ADMIN_USER`, `WP_ADMIN_EMAIL` and `WP_ADMIN_PASSWORD`.
+
+For local access, the example uses `localhost`. For access from another machine, use the VM's reachable IP or a DNS name pointing to that VM. Port **443** must be available and reachable.
+
+The environment files are local and ignored by Git. Their names and locations match the original project.
+
+## Start
+
+```sh
 make
 ```
 
-Open **https://localhost:8443** on that machine. The certificate is self-signed, so the browser will ask you to accept it for this local demo.
+Open **https://localhost**, or **https://YOUR_VM_HOSTNAME** using the configured `DOMAIN_NAME`. NGINX generates a self-signed certificate; expect the browser's local-certificate warning.
 
-The first run generates an ignored `.env` with random passwords. The WordPress administrator is `siteowner`; its password is `WP_ADMIN_PASSWORD` in that file. `make` waits for the services to be healthy before finishing.
-
-## Access from another machine
-
-Set the VM's reachable IPv4 address or DNS hostname on the first run:
+Persistent files keep the original directory layout: `mariadb`, `wordpress` and `nginx/ssl`. Their default parent is `data/` in the checkout. Select another absolute path when needed:
 
 ```sh
-make DOMAIN_NAME=192.0.2.10
+make DATA_DIR=/home/YOUR_LOGIN/data
 ```
 
-Replace the example address with the VM's address and open **https://YOUR_VM_IP:8443**. A DNS name must resolve to that VM. The chosen port must also be reachable through the VM's firewall or hosting provider.
-
-Choose another port if needed:
-
-```sh
-make DOMAIN_NAME=your-vm.example HTTPS_PORT=9443
-```
-
-You can also edit `DOMAIN_NAME` and `HTTPS_PORT` in `.env` and run `make` again. WordPress's canonical URL and the local certificate follow the configured hostname and port. Command-line settings apply to that invocation; edit `.env` to keep them as the new defaults.
-
-No user-specific host directory or fixed container name is required. The setup accepts DNS hostnames and IPv4 addresses; `DOMAIN_NAME` must not include `https://`, a port or a path.
-
-## Architecture and storage
-
-| Service | Role |
-| --- | --- |
-| MariaDB | Initialize the database and application user, then serve database requests |
-| WordPress | Download and install WordPress, manage the initial users and run PHP-FPM |
-| NGINX | Generate a local HTTPS certificate and serve the site through PHP-FPM |
-
-Compose waits for MariaDB to be healthy before starting WordPress, then for WordPress before starting NGINX. Startup scripts can resume an interrupted first installation without deleting WordPress files or recreating an existing database.
-
-Docker manages three project-scoped named volumes for the database, WordPress files and certificates. The data survives service restarts, container recreation, `make down` and `make clean`. Keep `.env` with those volumes so the database credentials continue to match. Changing password variables does not reset existing WordPress accounts or reconfigure an already initialized database.
+Use the same `DATA_DIR` for subsequent commands. The old `/home/greg/data` path is no longer required. To reuse existing data, point `DATA_DIR` at its parent directory and retain the matching database credentials.
 
 ## Commands
 
 | Command | Action |
 | --- | --- |
-| `make` / `make all` | Generate missing configuration, build and start the services, and wait for readiness |
-| `make init` | Generate `.env` if missing, preserving an existing file |
-| `make config` | Validate the resolved Compose configuration |
-| `make ps` | Show service status |
-| `make logs` | Follow service logs |
+| `make` / `make all` | Create the data directories, build and start the services |
 | `make down` | Stop and remove the project's containers and network |
-| `make re` | Build and start again, keeping data |
-| `make clean` | Remove the project's containers, network and local service images, keeping data volumes |
-| `make fclean` | Also delete the project's database, WordPress and certificate volumes; keep the local configuration file |
-| `make test` | Run isolated Docker integration checks; requires curl |
-
-`make clean` removes the project's containers, network and service images while preserving stored data.
-
-`make fclean` also deletes the database, WordPress files and certificate volumes. The local `.env` configuration is preserved.
-
-Use `PROJECT_NAME=another-name` for an independent Compose project, `ENV_FILE=another.env` for another configuration file, or `WAIT_TIMEOUT=300` if startup needs more time. Each simultaneously running project needs a different published port.
-
-`.env.example` documents the variables; `make init` generates fresh local passwords instead of copying the example values. Application and database identifiers should contain only letters, digits or underscores. Do not commit real credentials.
-
-## Integration checks
+| `make re` | Build and start the services again |
+| `make clean` | Remove the project's containers, local service images, Compose volumes and network; host data directories are preserved |
 
 ```sh
-make test
+docker compose -f srcs/docker-compose.yml ps
+docker compose -f srcs/docker-compose.yml logs -f
 ```
 
-The smoke test builds a temporary Compose project and checks:
+For a custom data directory, pass `DATA_DIR` to these commands too. The Makefile defaults to `docker compose`; a machine using the original standalone executable can use `make COMPOSE=docker-compose`.
 
-- A first installation, healthy services and the WordPress page over HTTPS.
-- Database and file persistence through restart and container recreation.
-- A hostname change from an IPv4 address to `localhost`, including the certificate and WordPress URL.
-- Data preservation after the real `make clean` command.
-- Removal of the project's data volumes after `make fclean`.
+## Source layout
 
-The test removes only its own temporary project and test volumes when finished. It uses port `18443` by default; override it with `TEST_HTTPS_PORT=19443 make test`.
-
-## Existing VM installations
-
-The previous configuration used bind mounts under `/home/greg/data`. This version creates Docker-managed volumes and does not import or delete those old directories. Back up the old database, WordPress files and configuration before switching if you want to retain an existing site, then restore them into the new setup. Stop the old containers before starting another instance on the same port.
-
-## References
-
-- [Compose startup order and health checks](https://docs.docker.com/compose/how-tos/startup-order/)
-- [MariaDB system-table initialization](https://mariadb.com/docs/server/clients-and-utilities/deployment-tools/mariadb-install-db)
-- [WP-CLI installation command](https://developer.wordpress.org/cli/commands/core/install/)
+- `srcs/docker-compose.yml`: the three services, network and persistent mounts.
+- `srcs/requirements/nginx/`: NGINX configuration and certificate startup script.
+- `srcs/requirements/wordpress/`: PHP 7.4, WP-CLI and WordPress startup.
+- `srcs/requirements/mariadb/`: database image and initialization script.
+- `srcs/.env` and `secrets/.env`: local configuration created from the examples.
