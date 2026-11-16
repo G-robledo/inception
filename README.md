@@ -33,7 +33,7 @@ Persistent files keep the original directory layout: `mariadb`, `wordpress` and 
 make DATA_DIR=/home/YOUR_LOGIN/data
 ```
 
-Use the same `DATA_DIR` for subsequent commands. The old `/home/greg/data` path is no longer required. To reuse existing data, point `DATA_DIR` at its parent directory and retain the matching database credentials.
+Use the same `DATA_DIR` for subsequent commands. To reuse existing data, point `DATA_DIR` at its parent directory and retain the matching database credentials.
 
 ## Commands
 
