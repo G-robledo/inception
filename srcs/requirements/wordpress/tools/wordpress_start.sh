@@ -1,81 +1,52 @@
 #!/bin/bash
-set -e  # Stoppe le script en cas d erreur
+set -euo pipefail
 
-# Creation du dossier necessaire pour PHP-FPM
-mkdir -p /run/php/
+for variable in MYSQL_DATABASE MYSQL_USER MYSQL_PASSWORD WP_URL WP_ADMIN_USER WP_ADMIN_PASSWORD WP_ADMIN_EMAIL WP_USER WP_USER_PASSWORD WP_USER_EMAIL; do
+    [ -n "${!variable:-}" ] || { echo "$variable is required." >&2; exit 1; }
+done
+[ "$WP_ADMIN_USER" != "$WP_USER" ] || { echo 'The administrator and subscriber must have different names.' >&2; exit 1; }
+mkdir -p /run/php /var/www/html
+cd /var/www/html
 
-echo "Verification des variables d environnement..."
-if [ -z "$MYSQL_DATABASE" ] || [ -z "$MYSQL_USER" ] || [ -z "$MYSQL_PASSWORD" ] || \
-   [ -z "$DOMAIN_NAME" ] || [ -z "$WP_ADMIN_USER" ] || [ -z "$WP_ADMIN_PASSWORD" ] || \
-   [ -z "$WP_ADMIN_EMAIL" ] || [ -z "$WP_USER" ] || [ -z "$WP_USER_EMAIL" ] || [ -z "$WP_USER_PASSWORD" ]; then
-    echo "Erreur : Une ou plusieurs variables d environnement ne sont pas definies."
-    exit 1
-fi
-
-# Verifier que MariaDB est pret avant d installer WordPress
-echo "Verification de la connexion a MariaDB..."
-until mariadb -h mariadb -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" -e "SELECT 1;" &> /dev/null; do
-    echo "MariaDB n est pas encore pret, attente..."
+ready=false
+for attempt in {1..60}; do
+    if MYSQL_PWD="$MYSQL_PASSWORD" mariadb --protocol=TCP --host=mariadb --user="$MYSQL_USER" --database="$MYSQL_DATABASE" --execute='SELECT 1' >/dev/null 2>&1; then
+        ready=true
+        break
+    fi
     sleep 2
 done
-echo "MariaDB est pret !"
+"$ready" || { echo 'WordPress could not connect to MariaDB.' >&2; exit 1; }
 
-# Verifier si WordPress est deja installe
-if [ ! -f /var/www/html/wp-config.php ]; then
-    if [ -d "/var/www/html/wp-content" ]; then
-        echo "WordPress semble deja installe. Suppression des anciens fichiers..."
-        rm -rf /var/www/html/*
-    fi
-
-    echo "Telechargement de WordPress..."
-    wp core download --allow-root
-
-    echo "Configuration de WordPress..."
-    wp config create --allow-root \
-        --dbname="$MYSQL_DATABASE" \
-        --dbuser="$MYSQL_USER" \
-        --dbpass="$MYSQL_PASSWORD" \
-        --dbhost=mariadb:3306
-
-    echo "Installation de WordPress..."
-    wp core install --allow-root \
-        --url="https://$DOMAIN_NAME" \
-        --title="Inception Project" \
-        --admin_user="$WP_ADMIN_USER" \
-        --admin_password="$WP_ADMIN_PASSWORD" \
-        --admin_email="$WP_ADMIN_EMAIL"
-
-    if ! wp user get "$WP_USER" --allow-root &> /dev/null; then
-        echo "Ajout de l utilisateur standard..."
-        wp user create "$WP_USER" "$WP_USER_EMAIL" --user_pass="$WP_USER_PASSWORD" --allow-root
-    else
-        echo "L utilisateur standard existe deja."
-    fi
+if [ ! -f .inception-core-ready ]; then
+    wp core download --allow-root --force
+    touch .inception-core-ready
 fi
 
-# Donner les bonnes permissions aux fichiers WordPress
+if [ ! -f wp-config.php ]; then
+    wp config create --allow-root --skip-check \
+        --dbname="$MYSQL_DATABASE" --dbuser="$MYSQL_USER" \
+        --dbpass="$MYSQL_PASSWORD" --dbhost=mariadb:3306
+fi
+wp config set FORCE_SSL_ADMIN true --raw --allow-root
+
+if ! wp core is-installed --allow-root; then
+    wp core install --allow-root --url="$WP_URL" --title='Inception Project' \
+        --admin_user="$WP_ADMIN_USER" --admin_password="$WP_ADMIN_PASSWORD" \
+        --admin_email="$WP_ADMIN_EMAIL" --skip-email
+fi
+
+# A new hostname or published port must also update WordPress's canonical URL.
+wp option update home "$WP_URL" --allow-root
+wp option update siteurl "$WP_URL" --allow-root
+if ! wp user get "$WP_ADMIN_USER" --allow-root >/dev/null 2>&1; then
+    wp user create "$WP_ADMIN_USER" "$WP_ADMIN_EMAIL" --role=administrator \
+        --user_pass="$WP_ADMIN_PASSWORD" --allow-root
+fi
+if ! wp user get "$WP_USER" --allow-root >/dev/null 2>&1; then
+    wp user create "$WP_USER" "$WP_USER_EMAIL" --role=subscriber \
+        --user_pass="$WP_USER_PASSWORD" --allow-root
+fi
+
 chown -R www-data:www-data /var/www/html
-
-# Modifier la configuration de PHP-FPM pour ecouter sur le port 9000
-sed -i 's|listen = /run/php/php7.4-fpm.sock|listen = 0.0.0.0:9000|' /etc/php/7.4/fpm/pool.d/www.conf
-sed -i 's|listen.allowed_clients = 127.0.0.1|listen.allowed_clients = 0.0.0.0|' /etc/php/7.4/fpm/pool.d/www.conf
-
-# Verifier si l'utilisateur admin existe avant de le creer
-if ! wp user get "$WP_ADMIN_USER" --allow-root &> /dev/null; then
-    echo "Ajout de l'utilisateur standard user42..."
-    wp user create "$WP_ADMIN_USER" "$WP_ADMIN_EMAIL" --user_pass="$WP_ADMIN_PASSWORD" --role=administrator --allow-root
-else
-    echo "L'utilisateur admin existe deja, pas besoin de le recreer."
-fi
-
-
-# Verifier si l'utilisateur existe avant de le creer
-if ! wp user get "$WP_USER" --allow-root &> /dev/null; then
-    echo "Ajout de l'utilisateur standard user42..."
-    wp user create "$WP_USER" "$WP_USER_EMAIL" --user_pass="$WP_USER_PASSWORD" --role=subscriber --allow-root
-else
-    echo "L'utilisateur standard existe deja, pas besoin de le recreer."
-fi
-
-echo "Demarrage de PHP-FPM..."
-exec php-fpm7.4 -F
+exec php-fpm -F

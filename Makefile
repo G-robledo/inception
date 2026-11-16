@@ -1,16 +1,37 @@
 COMPOSE ?= docker compose
-COMPOSE_FILE := srcs/docker-compose.yml
+PROJECT_NAME ?= inception
+ENV_FILE ?= .env
+WAIT_TIMEOUT ?= 180
+COMPOSE_CMD = $(COMPOSE) --env-file "$(ENV_FILE)" --project-name "$(PROJECT_NAME)" -f srcs/docker-compose.yml
 
-all:
-	@$(COMPOSE) -f $(COMPOSE_FILE) up -d --build
+all: init
+	@$(COMPOSE_CMD) up -d --build --wait --wait-timeout $(WAIT_TIMEOUT)
+	@printf 'Inception is ready. See .env for the hostname, port and local credentials.\n'
 
-down:
-	@$(COMPOSE) -f $(COMPOSE_FILE) down
+init:
+	@sh scripts/init-env.sh "$(ENV_FILE)"
 
-re:
-	@$(COMPOSE) -f $(COMPOSE_FILE) up -d --build
+config: init
+	@$(COMPOSE_CMD) config --quiet
 
-clean:
-	@$(COMPOSE) -f $(COMPOSE_FILE) down --rmi local --volumes --remove-orphans
+down: init
+	@$(COMPOSE_CMD) down
 
-.PHONY: all re down clean
+re: all
+
+clean: init
+	@$(COMPOSE_CMD) down --rmi local --remove-orphans
+
+fclean: init
+	@$(COMPOSE_CMD) down --rmi local --volumes --remove-orphans
+
+logs: init
+	@$(COMPOSE_CMD) logs -f
+
+ps: init
+	@$(COMPOSE_CMD) ps
+
+test:
+	@sh tests/smoke.sh
+
+.PHONY: all init config down re clean fclean logs ps test

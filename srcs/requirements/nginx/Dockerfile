@@ -1,25 +1,16 @@
-FROM debian:bullseye
+FROM debian:bookworm
 
-# Installer Nginx, OpenSSL et outils réseau
-RUN apt update && apt install -y \
-    nginx openssl net-tools lsof netcat curl iputils-ping \
-    && apt clean && rm -rf /var/lib/apt/lists/*
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends nginx openssl gettext-base curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/* /etc/nginx/sites-enabled/default \
+    && mkdir -p /var/www/html /data/nginx/ssl
 
-# Créer les répertoires nécessaires
-RUN mkdir -p /etc/nginx/ssl /var/www/html
+RUN sed -E '/^[[:space:]]*fastcgi_param[[:space:]]+(HTTP_HOST|SERVER_PORT)[[:space:]]/d' \
+        /etc/nginx/fastcgi_params > /etc/nginx/fastcgi_params_inception
 
-# Copier la configuration Nginx
-COPY /conf/default.conf /etc/nginx/conf.d/default.conf
-
-# Copier le script de démarrage et lui donner les permissions d'exécution
+COPY conf/default.conf /etc/nginx/templates/default.conf.template
 COPY tools/nginx_start.sh /nginx_start.sh
 RUN chmod +x /nginx_start.sh
 
-# Donner les bonnes permissions au dossier où Nginx va servir WordPress
-RUN chown -R www-data:www-data /var/www/html
-
-# Exposer uniquement le port 443 (HTTPS)
 EXPOSE 443
-
-# Lancer le script de démarrage au démarrage du conteneur
 ENTRYPOINT ["/nginx_start.sh"]

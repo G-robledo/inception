@@ -1,59 +1,77 @@
-version: '3.3'
-
 services:
   mariadb:
-    container_name: mariadb
     build: ./requirements/mariadb
-    restart: always  # Redémarre automatiquement en cas de cras
-    env_file:
-      - ./../secrets/.env
-      - .env  # Permet d'utiliser un fichier .env pour les variables sensibles
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:?Run make init first}
+      MYSQL_USER: ${MYSQL_USER:?Run make init first}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Run make init first}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Run make init first}
     volumes:
-      - /home/greg/data/mariadb:/var/lib/mysql  # Bind mount au lieu d un volume Docker
+      - mariadb_data:/var/lib/mysql
     networks:
       - inception
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$$MYSQL_PASSWORD\" mariadb --protocol=TCP --host=127.0.0.1 --user=\"$$MYSQL_USER\" --database=\"$$MYSQL_DATABASE\" --execute='SELECT 1' >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 3s
+      start_period: 30s
+      retries: 30
 
   wordpress:
-    container_name: wordpress
     build: ./requirements/wordpress
-    restart: always
+    restart: unless-stopped
     depends_on:
-      - mariadb  # Assure que MariaDB est lancé avant WordPres
-    env_file:
-      - ./../secrets/.env
-      - .env
+      mariadb:
+        condition: service_healthy
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:?Run make init first}
+      MYSQL_USER: ${MYSQL_USER:?Run make init first}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Run make init first}
+      WP_URL: https://${DOMAIN_NAME:-localhost}:${HTTPS_PORT:-8443}
+      WP_ADMIN_USER: ${WP_ADMIN_USER:?Run make init first}
+      WP_ADMIN_PASSWORD: ${WP_ADMIN_PASSWORD:?Run make init first}
+      WP_ADMIN_EMAIL: ${WP_ADMIN_EMAIL:?Run make init first}
+      WP_USER: ${WP_USER:?Run make init first}
+      WP_USER_PASSWORD: ${WP_USER_PASSWORD:?Run make init first}
+      WP_USER_EMAIL: ${WP_USER_EMAIL:?Run make init first}
     volumes:
-      - /home/greg/data/wordpress:/var/www/html  # Bind mount pour WordPress
+      - wordpress_data:/var/www/html
     networks:
       - inception
+    healthcheck:
+      test: ["CMD-SHELL", "php -r 'exit(@fsockopen(\"127.0.0.1\", 9000) ? 0 : 1);' && wp core is-installed --allow-root --quiet"]
+      interval: 5s
+      timeout: 5s
+      start_period: 30s
+      retries: 30
 
   nginx:
-    container_name: nginx
     build: ./requirements/nginx
-    restart: always
+    restart: unless-stopped
     depends_on:
-      - wordpress  # Assure que WordPress est lancé avant Nginx
+      wordpress:
+        condition: service_healthy
+    environment:
+      DOMAIN_NAME: ${DOMAIN_NAME:-localhost}
+      HTTPS_PORT: ${HTTPS_PORT:-8443}
     ports:
-      - "443:443"  # Expose Nginx en HTTPS
+      - "${HTTPS_PORT:-8443}:443"
     volumes:
-      - /home/greg/data/wordpress:/var/www/html  # Bind mount pour WordPress
-      - /home/greg/data/nginx/ssl:/data/nginx/ssl  # Volume pour les certificats SSL
+      - wordpress_data:/var/www/html:ro
+      - ssl_data:/data/nginx/ssl
     networks:
       - inception
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--insecure", "https://127.0.0.1/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
 
 volumes:
   wordpress_data:
-    driver: local
-    driver_opts:
-      type: none
-      device: /home/greg/data/wordpress
-      o: bind
   mariadb_data:
-    driver: local
-    driver_opts:
-      type: none
-      device: /home/greg/data/mariadb
-      o: bind
+  ssl_data:
 
 networks:
   inception:
